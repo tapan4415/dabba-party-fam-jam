@@ -8,8 +8,9 @@ const safeProduct = (p: any) => ({
   category: p.category,
   difficulty: p.difficulty,
   price_range: p.price_range,
-  image_url: p.image_url,
+  image_url: p.local_image,
 });
+const hostProduct = (p: any) => ({ ...p, image_url: p.local_image });
 const safeBasket = (b: any) => ({
   basket_id: b.basket_id,
   basket_name: b.basket_name,
@@ -23,7 +24,7 @@ const safeBasket = (b: any) => ({
     category: x.category,
     package_size: x.package_size,
     quantity: x.quantity,
-    image_url: x.image_url,
+    image_url: x.local_image,
   })),
 });
 
@@ -31,7 +32,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url),
     answers = url.searchParams.get("answers") === "1";
   return Response.json({
-    products: answers ? products : products.map(safeProduct),
-    baskets: answers ? baskets : baskets.map(safeBasket),
+    products: answers ? products.map(hostProduct) : products.map(safeProduct),
+    baskets: answers
+      ? baskets.map((b: any) => ({
+          ...b,
+          items: b.items.map((x: any) => ({ ...x, image_url: x.local_image })),
+        }))
+      : baskets.map(safeBasket),
   });
 }

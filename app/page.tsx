@@ -446,6 +446,7 @@ export default function Home() {
     [products, setProducts] = useState<Product[]>([placeholderProduct]),
     [allBaskets, setAllBaskets] = useState<GroceryBasket[]>([]),
     [pi, setPi] = useState(0),
+    [priceDeck, setPriceDeck] = useState<number[]>([]),
     [practice, setPractice] = useState(true),
     [stage, setStage] = useState(1),
     [timer, setTimer] = useState(10),
@@ -491,6 +492,7 @@ export default function Home() {
     setShown(s.shown || [0, 5]);
     setClues(s.clues || {});
     setPi(s.pi || 0);
+    setPriceDeck(s.priceDeck || []);
     setPractice(s.practice ?? true);
     setStage(s.stage || 1);
     setTimer(s.timer ?? 10);
@@ -540,6 +542,7 @@ export default function Home() {
               shown,
               clues,
               pi,
+              priceDeck,
               practice,
               stage,
               timer,
@@ -578,6 +581,7 @@ export default function Home() {
     shown,
     clues,
     pi,
+    priceDeck,
     practice,
     stage,
     timer,
@@ -595,29 +599,48 @@ export default function Home() {
     fetch(`/api/catalog?answers=${host || priceOpen ? 1 : 0}`)
       .then((r) => r.json())
       .then(({ products: raw, baskets }) => {
-        setProducts(
-          raw.map((p: any) => ({
-            id: p.id,
-            name: p.product_name,
-            brand: p.brand,
-            category: p.category,
-            price: p.price || 0,
-            originalPrice: p.original_price,
-            onSale: p.on_sale,
-            difficulty: p.difficulty,
-            priceRange: p.price_range,
-            image: p.image_url,
-            size: p.brand,
-            source: p.retailer || "",
-          })),
-        );
+        const mapped = raw.map((p: any) => ({
+          id: p.id,
+          name: p.product_name,
+          brand: p.brand,
+          category: p.category,
+          price: p.price || 0,
+          originalPrice: p.original_price,
+          onSale: p.on_sale,
+          difficulty: p.difficulty,
+          priceRange: p.price_range,
+          image: p.image_url,
+          size: p.brand,
+          source: p.retailer || "",
+        }));
+        setProducts(mapped);
+        if (host && !priceDeck.length) {
+          const pick = (level: string, n = 4, expensive = false) => {
+            const pool = mapped
+              .filter((p: Product) => p.difficulty === level)
+              .sort(
+                expensive
+                  ? (a: Product, b: Product) => b.price - a.price
+                  : () => Math.random() - 0.5,
+              )
+              .slice(0, expensive ? 10 : 20)
+              .sort(() => Math.random() - 0.5)
+              .slice(0, n);
+            return pool.map((p: Product) => p.id);
+          };
+          setPriceDeck([
+            ...pick("EASY"),
+            ...pick("MEDIUM"),
+            ...pick("HARD", 4, true),
+          ]);
+        }
         setAllBaskets(baskets);
       })
       .catch(() => {
         setToast("CATALOG COULD NOT LOAD");
         setTimeout(() => setToast(""), 1600);
       });
-  }, [host, priceOpen]);
+  }, [host, priceOpen, priceDeck.length]);
   useEffect(() => {
     localStorage.setItem(
       "dabba",
@@ -651,7 +674,13 @@ export default function Home() {
     ],
   );
   const chain = chains[ci],
-    product = playableProducts[pi % playableProducts.length] || products[0],
+    sessionProducts = priceDeck.length
+      ? (priceDeck
+          .map((id) => products.find((p) => p.id === id))
+          .filter(Boolean) as Product[])
+      : playableProducts,
+    product =
+      sessionProducts[pi % Math.max(1, sessionProducts.length)] || products[0],
     basket = allBaskets[pi % Math.max(1, allBaskets.length)] || {
       basket_id: 0,
       basket_name: "Loading verified basket…",
@@ -1009,6 +1038,7 @@ export default function Home() {
               onClick={() => {
                 setPractice(true);
                 setStage(1);
+                setPi(0);
                 setPriceOpen(false);
                 setScreen("price");
               }}
@@ -1035,6 +1065,7 @@ export default function Home() {
                 onClick={() => {
                   setPractice(true);
                   setStage(1);
+                  setPi(0);
                   setPriceOpen(false);
                   setScreen("price");
                 }}
@@ -1045,6 +1076,8 @@ export default function Home() {
                 onClick={() => {
                   setPractice(false);
                   setStage(1);
+                  setPi(0);
+                  setPriceDeck([]);
                   setPriceOpen(false);
                   setScreen("price");
                 }}
@@ -1217,7 +1250,9 @@ export default function Home() {
               <small>
                 {practice
                   ? `PRACTICE ${stage} · NO MONEY AT STAKE`
-                  : `ROUND ${stage}`}
+                  : stage === 1
+                    ? `QUESTION ${pi + 1} OF 12 · ${product.difficulty} · 4 EASY / 4 MEDIUM / 4 HARD`
+                    : `ROUND ${stage}`}
               </small>
               <h2>
                 {["", "CLASSIC PRICE", "UP OR DOWN", "BUILD THE BASKET"][stage]}
@@ -1363,7 +1398,11 @@ export default function Home() {
                   <button onClick={revealPrice}>LOCK & REVEAL</button>
                   <button
                     onClick={() => {
-                      setPi((i) => (i + 1) % playableProducts.length);
+                      if (!practice && stage === 1 && pi >= 11) {
+                        setScreen("scoreboard");
+                        return;
+                      }
+                      setPi((i) => i + 1);
                       setGuesses({});
                       setChoices({});
                       setPriceOpen(false);
@@ -1371,7 +1410,9 @@ export default function Home() {
                       setTimer(settings.priceTimer);
                     }}
                   >
-                    NEXT PRODUCT →
+                    {!practice && stage === 1 && pi >= 11
+                      ? "FINISH PRICE HUNTER →"
+                      : "NEXT PRODUCT →"}
                   </button>
                   {practice && (
                     <>
@@ -1380,6 +1421,8 @@ export default function Home() {
                         onClick={() => {
                           setPractice(false);
                           setStage(1);
+                          setPi(0);
+                          setPriceDeck([]);
                           setPriceOpen(false);
                           setGuesses({});
                           setChoices({});
@@ -1391,6 +1434,8 @@ export default function Home() {
                         onClick={() => {
                           setPractice(false);
                           setStage(1);
+                          setPi(0);
+                          setPriceDeck([]);
                           setPriceOpen(false);
                         }}
                       >
