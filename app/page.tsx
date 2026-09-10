@@ -446,6 +446,7 @@ export default function Home() {
     [products, setProducts] = useState<Product[]>([placeholderProduct]),
     [allBaskets, setAllBaskets] = useState<GroceryBasket[]>([]),
     [pi, setPi] = useState(0),
+    [bi, setBi] = useState(0),
     [priceDeck, setPriceDeck] = useState<number[]>([]),
     [practice, setPractice] = useState(true),
     [stage, setStage] = useState(1),
@@ -453,7 +454,9 @@ export default function Home() {
     [running, setRunning] = useState(false),
     [guesses, setGuesses] = useState<Record<number, string>>({}),
     [choices, setChoices] = useState<Record<number, string>>({}),
-    [carts, setCarts] = useState<Record<number, number[]>>({}),
+    [carts, setCarts] = useState<Record<number, (number | string)[]>>({}),
+    [cartAmounts, setCartAmounts] = useState<Record<number, number>>({}),
+    [basketDeck, setBasketDeck] = useState<number[]>([]),
     [locked, setLocked] = useState<number[]>([]),
     [priceOpen, setPriceOpen] = useState(false),
     [priceResult, setPriceResult] = useState(""),
@@ -492,6 +495,7 @@ export default function Home() {
     setShown(s.shown || [0, 5]);
     setClues(s.clues || {});
     setPi(s.pi || 0);
+    setBi(s.bi || 0);
     setPriceDeck(s.priceDeck || []);
     setPractice(s.practice ?? true);
     setStage(s.stage || 1);
@@ -500,6 +504,8 @@ export default function Home() {
     setGuesses(s.guesses || {});
     setChoices(s.choices || {});
     setCarts(s.carts || {});
+    setCartAmounts(s.cartAmounts || {});
+    setBasketDeck(s.basketDeck || []);
     setLocked(s.locked || []);
     setPriceOpen(s.priceOpen ?? false);
     setPriceResult(s.priceResult || "");
@@ -542,6 +548,7 @@ export default function Home() {
               shown,
               clues,
               pi,
+              bi,
               priceDeck,
               practice,
               stage,
@@ -550,6 +557,8 @@ export default function Home() {
               guesses,
               choices,
               carts,
+              cartAmounts,
+              basketDeck,
               locked,
               priceOpen,
               priceResult,
@@ -581,6 +590,7 @@ export default function Home() {
     shown,
     clues,
     pi,
+    bi,
     priceDeck,
     practice,
     stage,
@@ -589,6 +599,8 @@ export default function Home() {
     guesses,
     choices,
     carts,
+    cartAmounts,
+    basketDeck,
     locked,
     priceOpen,
     priceResult,
@@ -635,12 +647,18 @@ export default function Home() {
           ]);
         }
         setAllBaskets(baskets);
+        if (host && !basketDeck.length)
+          setBasketDeck(
+            baskets
+              .map((b: GroceryBasket) => b.basket_id)
+              .sort(() => Math.random() - 0.5),
+          );
       })
       .catch(() => {
         setToast("CATALOG COULD NOT LOAD");
         setTimeout(() => setToast(""), 1600);
       });
-  }, [host, priceOpen, priceDeck.length]);
+  }, [host, priceOpen, priceDeck.length, basketDeck.length]);
   useEffect(() => {
     localStorage.setItem(
       "dabba",
@@ -681,15 +699,18 @@ export default function Home() {
       : playableProducts,
     product =
       sessionProducts[pi % Math.max(1, sessionProducts.length)] || products[0],
-    basket = allBaskets[pi % Math.max(1, allBaskets.length)] || {
-      basket_id: 0,
-      basket_name: "Loading verified basket…",
-      retailer: "",
-      difficulty: "",
-      item_count: 0,
-      basket_total: 0,
-      items: [],
-    };
+    basket = allBaskets.find(
+      (b) => b.basket_id === basketDeck[bi % Math.max(1, basketDeck.length)],
+    ) ||
+      allBaskets[0] || {
+        basket_id: 0,
+        basket_name: "Loading verified basket…",
+        retailer: "",
+        difficulty: "",
+        item_count: 0,
+        basket_total: 0,
+        items: [],
+      };
   const say = (x: string) => {
       setToast(x);
       setTimeout(() => setToast(""), 1600);
@@ -704,6 +725,35 @@ export default function Home() {
       setTimer(settings.chainTimer);
       say(`CONTROL PASSES TO ${teams[(active + 1) % teams.length].name}`);
     };
+  const addGrocery = (teamId: number, itemId: string) => {
+    if (!host || locked.includes(teamId)) return;
+    const item = basket.items.find((x) => x.id === itemId);
+    if (!item) return;
+    if ((carts[teamId] || []).includes(itemId))
+      return say("THAT ITEM IS ALREADY IN THIS CART");
+    save();
+    setCarts((c) => ({ ...c, [teamId]: [...(c[teamId] || []), itemId] }));
+    setCartAmounts((a) => ({
+      ...a,
+      [teamId]:
+        ((a[teamId] || 0) * 100 + Math.round(item.extended_price * 100)) / 100,
+    }));
+  };
+  const removeGrocery = (teamId: number, itemId: string) => {
+    const item = basket.items.find((x) => x.id === itemId);
+    setCarts((c) => ({
+      ...c,
+      [teamId]: (c[teamId] || []).filter((id) => id !== itemId),
+    }));
+    if (item)
+      setCartAmounts((a) => ({
+        ...a,
+        [teamId]: Math.max(
+          0,
+          Math.round(((a[teamId] || 0) - item.extended_price) * 100) / 100,
+        ),
+      }));
+  };
   const openWord = () =>
     chain.words.findIndex(
       (_, i) => i > 0 && i < chain.words.length - 1 && !shown.includes(i),
@@ -866,24 +916,23 @@ export default function Home() {
   };
   const revealBaskets = () => {
     if (priceOpen) return;
-    const entries = teams.map((t, i) => ({ i, g: Number(guesses[t.id]) }));
-    if (
-      entries.some(
-        (x) =>
-          !Number.isFinite(x.g) || x.g < 0 || !guesses[teams[x.i].id]?.trim(),
-      )
-    )
-      return say("ENTER A VALID GUESS FOR EVERY TEAM");
+    if (teams.some((t) => !(carts[t.id] || []).length))
+      return say("EVERY TEAM MUST ADD AT LEAST ONE ITEM");
+    const targetCents = Math.round(settings.target * 100),
+      entries = teams.map((t, i) => ({
+        i,
+        totalCents: Math.round((cartAmounts[t.id] || 0) * 100),
+      }));
     setPriceOpen(true);
     if (practice) {
       setPriceResult("PRACTICE REVEAL · NO MONEY AWARDED");
       return say("PRACTICE ONLY · $0 AWARDED");
     }
     const best = Math.min(
-      ...entries.map((x) => Math.abs(x.g - basket.basket_total)),
+      ...entries.map((x) => Math.abs(x.totalCents - targetCents)),
     );
     const winners = entries
-      .filter((x) => Math.abs(x.g - basket.basket_total) === best)
+      .filter((x) => Math.abs(x.totalCents - targetCents) === best)
       .map((x) => teams[x.i]);
     setTeams((t) =>
       t.map((x) =>
@@ -891,7 +940,7 @@ export default function Home() {
       ),
     );
     setPriceResult(
-      `${winners.map((x) => x.name).join(" + ")} ${winners.length > 1 ? "TIE" : "WINS"} · CLOSEST GUESS · +$300`,
+      `${winners.map((x) => x.name).join(" + ")} ${winners.length > 1 ? "TIE" : "WINS"} · CLOSEST TO ${cash(settings.target)} · +$300`,
     );
     say(
       `${winners.map((x) => x.name).join(" + ")} ${winners.length > 1 ? "TIE" : "IS CLOSEST"} · +$300`,
@@ -1276,6 +1325,13 @@ export default function Home() {
                     onClick={() => {
                       setStage(n);
                       setPriceOpen(false);
+                      setPriceResult("");
+                      if (n === 3) {
+                        setBi(0);
+                        setCarts({});
+                        setCartAmounts({});
+                        setLocked([]);
+                      }
                       setTimer(settings.priceTimer);
                     }}
                   >
@@ -1449,17 +1505,29 @@ export default function Home() {
           ) : (
             <>
               <div className="target">
-                <strong>HOW MUCH DOES THIS CART COST?</strong>
+                <strong>BUILD A CART CLOSE TO {cash(settings.target)}</strong>
                 <p>
                   {basket.basket_name} · {basket.retailer} · {basket.difficulty}
                 </p>
                 {priceOpen && (
-                  <b>ACTUAL CART TOTAL · {cash(basket.basket_total)}</b>
+                  <b>ALL 20 ITEMS TOTAL · {cash(basket.basket_total)}</b>
                 )}
               </div>
               <div className="grocerygrid">
                 {basket.items.map((item) => (
-                  <article key={item.id}>
+                  <article
+                    key={item.id}
+                    draggable={host}
+                    className={
+                      (carts[teams[active].id] || []).includes(item.id)
+                        ? "used"
+                        : ""
+                    }
+                    onDragStart={(e) =>
+                      e.dataTransfer.setData("text/plain", item.id)
+                    }
+                    onClick={() => addGrocery(teams[active].id, item.id)}
+                  >
                     <SafeImage
                       src={item.image_url}
                       alt={`${item.brand} ${item.product_name}`}
@@ -1473,28 +1541,55 @@ export default function Home() {
                   </article>
                 ))}
               </div>
-              <div className="guessgrid">
-                {teams.map((t) => (
-                  <article key={t.id} style={{ "--team": t.color } as any}>
+              <div className="carts basketcarts">
+                {teams.map((t, i) => (
+                  <article
+                    key={t.id}
+                    className={i === active ? "activecart" : ""}
+                    style={{ "--team": t.color } as any}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      addGrocery(t.id, e.dataTransfer.getData("text/plain"));
+                    }}
+                    onClick={() => host && setActive(i)}
+                  >
                     <b>{t.name}</b>
-                    {host && (
-                      <input
-                        aria-label={`${t.name} cart guess`}
-                        inputMode="decimal"
-                        value={guesses[t.id] || ""}
-                        onChange={(e) =>
-                          setGuesses((g) => ({
-                            ...g,
-                            [t.id]: e.target.value.replace(/[^0-9.]/g, ""),
-                          }))
-                        }
-                      />
-                    )}
-                    <strong>
-                      {guesses[t.id]
-                        ? cash(Number(guesses[t.id]))
-                        : "$__________"}
-                    </strong>
+                    <small>
+                      DROP ITEMS HERE · {(carts[t.id] || []).length} UNIQUE
+                      ITEMS
+                    </small>
+                    <div>
+                      {(carts[t.id] || []).map((id) => {
+                        const item = basket.items.find((x) => x.id === id);
+                        return item ? (
+                          <span key={String(id)}>
+                            <SafeImage
+                              src={item.image_url}
+                              alt={`${item.brand} ${item.product_name}`}
+                            />
+                            {item.product_name}
+                            {host && !priceOpen && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeGrocery(t.id, String(id));
+                                }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                    <strong>{cash(cartAmounts[t.id] || 0)}</strong>
+                    <em>
+                      {cash(
+                        Math.abs(settings.target - (cartAmounts[t.id] || 0)),
+                      )}{" "}
+                      FROM TARGET
+                    </em>
                   </article>
                 ))}
               </div>
@@ -1503,16 +1598,33 @@ export default function Home() {
               )}
               {host && (
                 <div className="controls center">
-                  <button onClick={revealBaskets}>LOCK GUESSES & REVEAL</button>
+                  <button onClick={revealBaskets}>LOCK CARTS & SCORE</button>
                   <button
                     onClick={() => {
-                      setPi((i) => (i + 1) % allBaskets.length);
+                      setCarts((c) => ({ ...c, [teams[active].id]: [] }));
+                      setCartAmounts((a) => ({ ...a, [teams[active].id]: 0 }));
+                    }}
+                  >
+                    CLEAR ACTIVE CART
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (bi >= basketDeck.length - 1) {
+                        setScreen("scoreboard");
+                        return;
+                      }
+                      setBi((i) => i + 1);
                       setGuesses({});
+                      setCarts({});
+                      setCartAmounts({});
+                      setLocked([]);
                       setPriceOpen(false);
                       setPriceResult("");
                     }}
                   >
-                    NEXT BASKET →
+                    {bi >= basketDeck.length - 1
+                      ? "FINISH BASKETS →"
+                      : "NEXT UNIQUE BASKET →"}
                   </button>
                   {practice && (
                     <button

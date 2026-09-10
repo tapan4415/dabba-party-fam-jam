@@ -788,6 +788,42 @@ aside .no {
   display: flex;
   flex-direction: column;
 }
+.grocerygrid article[draggable="true"] {
+  cursor: grab;
+}
+.grocerygrid article.used {
+  opacity: 0.45;
+  outline: 3px solid var(--teal);
+}
+.basketcarts article {
+  min-height: 190px;
+  border: 3px dashed var(--team);
+  cursor: pointer;
+}
+.basketcarts article.activecart {
+  border-style: solid;
+}
+.basketcarts small {
+  display: block;
+  font-size: 8px;
+  margin: 5px 0;
+}
+.basketcarts span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.basketcarts span img,
+.basketcarts span .imagefallback {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex: none;
+}
+.basketcarts em {
+  font-size: 9px;
+  color: var(--orange);
+}
 .grocerygrid img,
 .grocerygrid .imagefallback {
   width: 100%;
