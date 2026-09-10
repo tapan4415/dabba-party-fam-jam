@@ -207,6 +207,31 @@ nav .on {
   display: flex;
   gap: 8px;
 }
+.showjump {
+  max-width: 900px;
+  margin: 18px auto;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+  background: var(--ink);
+  padding: 12px;
+}
+.showjump b {
+  grid-column: 1/-1;
+  color: var(--yellow);
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+.showjump button {
+  border: 0;
+  background: white;
+  padding: 10px;
+  font-size: 9px;
+}
+.showjump .reset {
+  background: var(--orange);
+  color: white;
+}
 .quickstart button {
   flex: 1;
   border: 2px solid var(--ink);
@@ -893,6 +918,12 @@ aside .no {
   .settinggrid,
   .editgrid {
     grid-template-columns: 1fr;
+  }
+  .showjump {
+    grid-template-columns: 1fr 1fr;
+  }
+  .showjump b {
+    grid-column: 1/-1;
   }
   .product {
     grid-template-columns: 1fr;

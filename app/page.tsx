@@ -448,6 +448,8 @@ export default function Home() {
     [pi, setPi] = useState(0),
     [bi, setBi] = useState(0),
     [priceDeck, setPriceDeck] = useState<number[]>([]),
+    [priceDeck2, setPriceDeck2] = useState<number[]>([]),
+    [p2i, setP2i] = useState(0),
     [practice, setPractice] = useState(true),
     [stage, setStage] = useState(1),
     [timer, setTimer] = useState(10),
@@ -497,6 +499,8 @@ export default function Home() {
     setPi(s.pi || 0);
     setBi(s.bi || 0);
     setPriceDeck(s.priceDeck || []);
+    setPriceDeck2(s.priceDeck2 || []);
+    setP2i(s.p2i || 0);
     setPractice(s.practice ?? true);
     setStage(s.stage || 1);
     setTimer(s.timer ?? 10);
@@ -550,6 +554,8 @@ export default function Home() {
               pi,
               bi,
               priceDeck,
+              priceDeck2,
+              p2i,
               practice,
               stage,
               timer,
@@ -592,6 +598,8 @@ export default function Home() {
     pi,
     bi,
     priceDeck,
+    priceDeck2,
+    p2i,
     practice,
     stage,
     timer,
@@ -646,6 +654,16 @@ export default function Home() {
             ...pick("HARD", 4, true),
           ]);
         }
+        if (host && priceDeck.length && !priceDeck2.length) {
+          const used = new Set(priceDeck);
+          setPriceDeck2(
+            mapped
+              .filter((p: Product) => !used.has(p.id))
+              .sort(() => Math.random() - 0.5)
+              .slice(0, 10)
+              .map((p: Product) => p.id),
+          );
+        }
         setAllBaskets(baskets);
         if (host && !basketDeck.length)
           setBasketDeck(
@@ -658,7 +676,7 @@ export default function Home() {
         setToast("CATALOG COULD NOT LOAD");
         setTimeout(() => setToast(""), 1600);
       });
-  }, [host, priceOpen, priceDeck.length, basketDeck.length]);
+  }, [host, priceOpen, priceDeck.length, priceDeck2.length, basketDeck.length]);
   useEffect(() => {
     localStorage.setItem(
       "dabba",
@@ -697,8 +715,20 @@ export default function Home() {
           .map((id) => products.find((p) => p.id === id))
           .filter(Boolean) as Product[])
       : playableProducts,
+    secondProducts = priceDeck2
+      .map((id) => products.find((p) => p.id === id))
+      .filter(Boolean) as Product[],
     product =
-      sessionProducts[pi % Math.max(1, sessionProducts.length)] || products[0],
+      stage === 2
+        ? secondProducts[p2i] || products[0]
+        : sessionProducts[pi % Math.max(1, sessionProducts.length)] ||
+          products[0],
+    referenceProduct =
+      stage === 2
+        ? p2i > 0
+          ? secondProducts[p2i - 1]
+          : sessionProducts[sessionProducts.length - 1]
+        : product,
     basket = allBaskets.find(
       (b) => b.basket_id === basketDeck[bi % Math.max(1, basketDeck.length)],
     ) ||
@@ -711,6 +741,35 @@ export default function Home() {
         basket_total: 0,
         items: [],
       };
+  const basketPool = useMemo(() => {
+    const groceryDecoys = allBaskets
+      .filter((b) => b.basket_id !== basket.basket_id)
+      .flatMap((b) => b.items)
+      .filter(
+        (x) => !basket.items.some((i) => i.product_name === x.product_name),
+      )
+      .slice(0, 8);
+    const productDecoys = products
+      .filter((p) => p.id && p.price >= 20)
+      .sort((a, b) => b.price - a.price)
+      .slice(0, 8)
+      .map((p) => ({
+        id: `product-${p.id}`,
+        product_name: p.name,
+        brand: p.brand || "",
+        category: p.category || "General",
+        package_size: "1 item",
+        quantity: 1,
+        unit_price: p.price,
+        extended_price: p.price,
+        image_url: p.image,
+      }));
+    return [...basket.items, ...groceryDecoys, ...productDecoys].sort(
+      (a, b) =>
+        String(a.id).localeCompare(String(b.id)) *
+        (basket.basket_id % 2 ? 1 : -1),
+    );
+  }, [basket, allBaskets, products]);
   const say = (x: string) => {
       setToast(x);
       setTimeout(() => setToast(""), 1600);
@@ -727,7 +786,7 @@ export default function Home() {
     };
   const addGrocery = (teamId: number, itemId: string) => {
     if (!host || locked.includes(teamId)) return;
-    const item = basket.items.find((x) => x.id === itemId);
+    const item = basketPool.find((x) => x.id === itemId);
     if (!item) return;
     if ((carts[teamId] || []).includes(itemId))
       return say("THAT ITEM IS ALREADY IN THIS CART");
@@ -740,7 +799,7 @@ export default function Home() {
     }));
   };
   const removeGrocery = (teamId: number, itemId: string) => {
-    const item = basket.items.find((x) => x.id === itemId);
+    const item = basketPool.find((x) => x.id === itemId);
     setCarts((c) => ({
       ...c,
       [teamId]: (c[teamId] || []).filter((id) => id !== itemId),
@@ -833,6 +892,17 @@ export default function Home() {
       setScreen("chain");
     },
     nextChain = () => {
+      if (ci >= chains.length - 1) {
+        setScreen("price");
+        setStage(1);
+        setPi(0);
+        setP2i(0);
+        setPractice(false);
+        setPriceDeck([]);
+        setPriceDeck2([]);
+        setPriceOpen(false);
+        return;
+      }
       let n = Math.min(ci + 1, chains.length - 1);
       if (!settings.hard && chains[n]?.round === 3) n = 1;
       setCi(n);
@@ -866,6 +936,8 @@ export default function Home() {
       )
     )
       return say("ENTER A VALID GUESS FOR EVERY TEAM");
+    if (stage === 2 && teams.some((t) => !choices[t.id]))
+      return say("EVERY TEAM MUST CHOOSE UP OR DOWN");
     save();
     setPriceOpen(true);
     if (practice) {
@@ -895,13 +967,7 @@ export default function Home() {
         `${names} ${winners.length > 1 ? "TIE" : "IS CLOSEST"} · +${cash(prize)}`,
       );
     } else if (stage === 2) {
-      const answer =
-          product.price >
-          playableProducts[
-            (pi - 1 + playableProducts.length) % playableProducts.length
-          ].price
-            ? "UP"
-            : "DOWN",
+      const answer = product.price > referenceProduct.price ? "UP" : "DOWN",
         winners = teams.filter((x) => choices[x.id] === answer);
       setTeams((t) =>
         t.map((x) =>
@@ -963,6 +1029,45 @@ export default function Home() {
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
   });
+  const resetShow = () => {
+    setTeams(initialTeams);
+    setActive(0);
+    setCi(0);
+    setShown([0, 5]);
+    setClues({});
+    setPi(0);
+    setP2i(0);
+    setBi(0);
+    setPriceDeck([]);
+    setPriceDeck2([]);
+    setBasketDeck([]);
+    setCarts({});
+    setCartAmounts({});
+    setLocked([]);
+    setGuesses({});
+    setChoices({});
+    setPriceOpen(false);
+    setPriceResult("");
+    setPractice(true);
+    setStage(1);
+    setScreen("home");
+    say("FULL GAME RESET · NEW RANDOM QUESTIONS READY");
+  };
+  const jumpPrice = (round: number) => {
+    setPractice(false);
+    setStage(round);
+    setPriceOpen(false);
+    setPriceResult("");
+    if (round === 1) setPi(0);
+    if (round === 2) setP2i(0);
+    if (round === 3) {
+      setBi(0);
+      setCarts({});
+      setCartAmounts({});
+      setLocked([]);
+    }
+    setScreen("price");
+  };
   const Nav = () => (
     <>
       <header>
@@ -1127,6 +1232,7 @@ export default function Home() {
                   setStage(1);
                   setPi(0);
                   setPriceDeck([]);
+                  setPriceDeck2([]);
                   setPriceOpen(false);
                   setScreen("price");
                 }}
@@ -1135,6 +1241,20 @@ export default function Home() {
               </button>
             </div>
           </div>
+          {host && (
+            <div className="showjump">
+              <b>HOST · START ANY ROUND</b>
+              <button onClick={() => goChain(false)}>CHAIN ROUND 1</button>
+              <button onClick={() => jumpPrice(1)}>PRICE ROUND 1</button>
+              <button onClick={() => jumpPrice(2)}>
+                PRICE ROUND 2 · 10 ITEMS
+              </button>
+              <button onClick={() => jumpPrice(3)}>BASKET ROUND</button>
+              <button className="reset" onClick={resetShow}>
+                RESET & RE-RANDOMIZE
+              </button>
+            </div>
+          )}
           <p className="tip">
             ONE OPTIONAL TEST ROUND PER GAME · Test scores never affect team
             totals{" "}
@@ -1301,7 +1421,9 @@ export default function Home() {
                   ? `PRACTICE ${stage} · NO MONEY AT STAKE`
                   : stage === 1
                     ? `QUESTION ${pi + 1} OF 12 · ${product.difficulty} · 4 EASY / 4 MEDIUM / 4 HARD`
-                    : `ROUND ${stage}`}
+                    : stage === 2
+                      ? `ROUND 2 · ITEM ${p2i + 1} OF 10 · ALL ITEMS ARE NEW`
+                      : `ROUND 3 · BASKET ${bi + 1} OF ${basketDeck.length}`}
               </small>
               <h2>
                 {["", "CLASSIC PRICE", "UP OR DOWN", "BUILD THE BASKET"][stage]}
@@ -1359,13 +1481,7 @@ export default function Home() {
                   <u>{product.source}</u>
                   {stage === 2 && (
                     <label>
-                      REFERENCE PRICE ·{" "}
-                      {cash(
-                        playableProducts[
-                          (pi - 1 + playableProducts.length) %
-                            playableProducts.length
-                        ].price,
-                      )}
+                      REFERENCE PRICE · {cash(referenceProduct.price)}
                     </label>
                   )}
                   {priceOpen && (
@@ -1429,11 +1545,7 @@ export default function Home() {
                         {priceOpen && (
                           <strong>
                             {choices[t.id] ===
-                            (product.price >
-                            playableProducts[
-                              (pi - 1 + playableProducts.length) %
-                                playableProducts.length
-                            ].price
+                            (product.price > referenceProduct.price
                               ? "UP"
                               : "DOWN")
                               ? "✓ CORRECT"
@@ -1455,10 +1567,18 @@ export default function Home() {
                   <button
                     onClick={() => {
                       if (!practice && stage === 1 && pi >= 11) {
-                        setScreen("scoreboard");
+                        setStage(2);
+                        setP2i(0);
                         return;
                       }
-                      setPi((i) => i + 1);
+                      if (!practice && stage === 2 && p2i >= 9) {
+                        setStage(3);
+                        setBi(0);
+                        setCarts({});
+                        setCartAmounts({});
+                        setLocked([]);
+                      } else if (stage === 2) setP2i((i) => i + 1);
+                      else setPi((i) => i + 1);
                       setGuesses({});
                       setChoices({});
                       setPriceOpen(false);
@@ -1467,8 +1587,10 @@ export default function Home() {
                     }}
                   >
                     {!practice && stage === 1 && pi >= 11
-                      ? "FINISH PRICE HUNTER →"
-                      : "NEXT PRODUCT →"}
+                      ? "CONTINUE TO ROUND 2 →"
+                      : !practice && stage === 2 && p2i >= 9
+                        ? "CONTINUE TO BASKET ROUND →"
+                        : "NEXT UNIQUE PRODUCT →"}
                   </button>
                   {practice && (
                     <>
@@ -1479,6 +1601,7 @@ export default function Home() {
                           setStage(1);
                           setPi(0);
                           setPriceDeck([]);
+                          setPriceDeck2([]);
                           setPriceOpen(false);
                           setGuesses({});
                           setChoices({});
@@ -1492,6 +1615,7 @@ export default function Home() {
                           setStage(1);
                           setPi(0);
                           setPriceDeck([]);
+                          setPriceDeck2([]);
                           setPriceOpen(false);
                         }}
                       >
@@ -1507,14 +1631,15 @@ export default function Home() {
               <div className="target">
                 <strong>BUILD A CART CLOSE TO {cash(settings.target)}</strong>
                 <p>
-                  {basket.basket_name} · {basket.retailer} · {basket.difficulty}
+                  PICK A SUBSET · {basketPool.length} MIXED ITEMS · GROCERIES +
+                  EXPENSIVE DECOYS
                 </p>
                 {priceOpen && (
                   <b>ALL 20 ITEMS TOTAL · {cash(basket.basket_total)}</b>
                 )}
               </div>
               <div className="grocerygrid">
-                {basket.items.map((item) => (
+                {basketPool.map((item) => (
                   <article
                     key={item.id}
                     draggable={host}
@@ -1561,7 +1686,7 @@ export default function Home() {
                     </small>
                     <div>
                       {(carts[t.id] || []).map((id) => {
-                        const item = basket.items.find((x) => x.id === id);
+                        const item = basketPool.find((x) => x.id === id);
                         return item ? (
                           <span key={String(id)}>
                             <SafeImage
@@ -1809,12 +1934,11 @@ export default function Home() {
               RESET SCORES
             </button>
             <button
-              onClick={() => {
-                if (confirm("Reset game and custom content?")) {
-                  localStorage.removeItem("dabba");
-                  location.reload();
-                }
-              }}
+              onClick={() =>
+                confirm(
+                  "Reset the entire show and choose new random questions?",
+                ) && resetShow()
+              }
             >
               RESET GAME
             </button>
