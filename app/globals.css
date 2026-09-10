@@ -774,6 +774,53 @@ aside .no {
   font-size: 8px;
   text-transform: uppercase;
 }
+.grocerygrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.grocerygrid article {
+  min-width: 0;
+  background: white;
+  padding: 8px;
+  border: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+}
+.grocerygrid img,
+.grocerygrid .imagefallback {
+  width: 100%;
+  height: 74px;
+  object-fit: contain;
+  background: #f5f5f2;
+  display: grid;
+  place-items: center;
+}
+.grocerygrid b {
+  font-size: 9px;
+  line-height: 1.15;
+  margin-top: 5px;
+}
+.grocerygrid span {
+  font-size: 8px;
+  color: #666;
+  margin-top: auto;
+}
+.grocerygrid strong {
+  color: var(--orange);
+  margin-top: 4px;
+}
+.imagefallback {
+  font-size: 8px;
+  color: #777;
+  background: #f0f0ec;
+}
+.product del {
+  font-size: 15px;
+  margin-left: 8px;
+  color: #777;
+}
 @keyframes pop {
   from {
     transform: translateX(-50%) scale(0.5);
@@ -831,6 +878,9 @@ aside .no {
     grid-template-columns: repeat(2, 1fr);
   }
   .catalog {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grocerygrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   aside {

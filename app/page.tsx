@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-type Team = { id: number; name: string; color: string; score: number };
 type Chain = { title: string; round: number; words: string[]; value: number };
 type Product = {
   id: number;
@@ -10,6 +9,31 @@ type Product = {
   size: string;
   source: string;
   category?: string;
+  brand?: string;
+  difficulty?: string;
+  priceRange?: string;
+  originalPrice?: number | null;
+  onSale?: boolean;
+};
+type GroceryItem = {
+  id: string;
+  product_name: string;
+  brand: string;
+  category: string;
+  package_size: string;
+  quantity: number;
+  unit_price: number;
+  extended_price: number;
+  image_url: string;
+};
+type GroceryBasket = {
+  basket_id: number;
+  basket_name: string;
+  retailer: string;
+  difficulty: string;
+  item_count: number;
+  basket_total: number;
+  items: GroceryItem[];
 };
 type Screen =
   "home" | "setup" | "chain" | "price" | "settings" | "content" | "scoreboard";
@@ -395,11 +419,19 @@ const featuredProducts: Product[] = [
     source: "Trek retailer · checked Sep 2026",
   },
 ];
-const allProducts = [
-  ...initialProducts,
-  ...featuredProducts,
-  ...expandedProducts,
-];
+void initialProducts;
+void expandedProducts;
+void featuredProducts;
+const placeholderProduct: Product = {
+  id: 0,
+  name: "Loading verified product…",
+  brand: "",
+  category: "",
+  price: 0,
+  image: "",
+  size: "",
+  source: "",
+};
 const cash = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 export default function Home() {
@@ -411,7 +443,8 @@ export default function Home() {
     [ci, setCi] = useState(0),
     [shown, setShown] = useState<number[]>([0, 5]),
     [clues, setClues] = useState<Record<number, number>>({}),
-    [products, setProducts] = useState(allProducts),
+    [products, setProducts] = useState<Product[]>([placeholderProduct]),
+    [allBaskets, setAllBaskets] = useState<GroceryBasket[]>([]),
     [pi, setPi] = useState(0),
     [practice, setPractice] = useState(true),
     [stage, setStage] = useState(1),
@@ -439,6 +472,9 @@ export default function Home() {
     target: 50,
     hostTotal: true,
     sound: true,
+    productDifficulty: "ALL",
+    productCategory: "ALL",
+    productPriceRange: "ALL",
   });
   const clock = useRef<any>(null);
   const changeHost = (value: boolean) => {
@@ -454,7 +490,6 @@ export default function Home() {
     setCi(s.ci || 0);
     setShown(s.shown || [0, 5]);
     setClues(s.clues || {});
-    setProducts(s.dataVersion === 5 ? s.products : allProducts);
     setPi(s.pi || 0);
     setPractice(s.practice ?? true);
     setStage(s.stage || 1);
@@ -496,7 +531,7 @@ export default function Home() {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              dataVersion: 5,
+              dataVersion: 6,
               screen,
               teams,
               active,
@@ -504,7 +539,6 @@ export default function Home() {
               ci,
               shown,
               clues,
-              products,
               pi,
               practice,
               stage,
@@ -543,7 +577,6 @@ export default function Home() {
     ci,
     shown,
     clues,
-    products,
     pi,
     practice,
     stage,
@@ -559,34 +592,75 @@ export default function Home() {
     eventName,
   ]);
   useEffect(() => {
+    fetch(`/api/catalog?answers=${host || priceOpen ? 1 : 0}`)
+      .then((r) => r.json())
+      .then(({ products: raw, baskets }) => {
+        setProducts(
+          raw.map((p: any) => ({
+            id: p.id,
+            name: p.product_name,
+            brand: p.brand,
+            category: p.category,
+            price: p.price || 0,
+            originalPrice: p.original_price,
+            onSale: p.on_sale,
+            difficulty: p.difficulty,
+            priceRange: p.price_range,
+            image: p.image_url,
+            size: p.brand,
+            source: p.retailer || "",
+          })),
+        );
+        setAllBaskets(baskets);
+      })
+      .catch(() => {
+        setToast("CATALOG COULD NOT LOAD");
+        setTimeout(() => setToast(""), 1600);
+      });
+  }, [host, priceOpen]);
+  useEffect(() => {
     localStorage.setItem(
       "dabba",
-        JSON.stringify({
-          dataVersion: 5,
+      JSON.stringify({
+        dataVersion: 6,
         teams,
         chains,
-        products,
         settings,
         eventName,
       }),
     );
-  }, [teams, chains, products, settings, eventName]);
+  }, [teams, chains, settings, eventName]);
+  const playableProducts = useMemo(
+    () =>
+      products
+        .filter(
+          (p) =>
+            (settings.productDifficulty === "ALL" ||
+              p.difficulty === settings.productDifficulty) &&
+            (settings.productCategory === "ALL" ||
+              p.category === settings.productCategory) &&
+            (settings.productPriceRange === "ALL" ||
+              p.priceRange === settings.productPriceRange),
+        )
+        .sort((a, b) => ((a.id * 37) % 61) - ((b.id * 37) % 61)),
+    [
+      products,
+      settings.productDifficulty,
+      settings.productCategory,
+      settings.productPriceRange,
+    ],
+  );
   const chain = chains[ci],
-    product = products[pi % products.length],
-    basketProducts = products.filter((p) => p.id < 100).slice(0, 16),
-    totals = useMemo(
-      () =>
-        Object.fromEntries(
-          teams.map((t) => [
-            t.id,
-            (carts[t.id] || []).reduce(
-              (a, id) => a + (products.find((p) => p.id === id)?.price || 0),
-              0,
-            ),
-          ]),
-        ),
-      [carts, products, teams],
-    );
+    product = playableProducts[pi % playableProducts.length] || products[0],
+    basket = allBaskets[pi % Math.max(1, allBaskets.length)] || {
+      basket_id: 0,
+      basket_name: "Loading verified basket…",
+      retailer: "",
+      difficulty: "",
+      item_count: 0,
+      basket_total: 0,
+      items: [],
+    };
   const say = (x: string) => {
       setToast(x);
       setTimeout(() => setToast(""), 1600);
@@ -703,6 +777,16 @@ export default function Home() {
   };
   const revealPrice = () => {
     if (priceOpen) return;
+    if (
+      stage === 1 &&
+      teams.some(
+        (t) =>
+          !guesses[t.id]?.trim() ||
+          !Number.isFinite(Number(guesses[t.id])) ||
+          Number(guesses[t.id]) < 0,
+      )
+    )
+      return say("ENTER A VALID GUESS FOR EVERY TEAM");
     save();
     setPriceOpen(true);
     if (practice) {
@@ -710,33 +794,33 @@ export default function Home() {
       return say("PRACTICE ONLY · $0 AWARDED");
     }
     if (stage === 1) {
-      const a = teams
-        .map((t, i) => ({
-          i,
-          g: +guesses[t.id],
-          d: Math.abs(+guesses[t.id] - product.price),
-        }))
-        .filter((x) => guesses[teams[x.i].id])
-        .sort((a, b) => a.d - b.d)[0];
-      if (a) {
-        const exact = a.g === product.price,
-          prize = exact ? 200 : 100;
-        setTeams((t) =>
-          t.map((x, i) => (i === a.i ? { ...x, score: x.score + prize } : x)),
-        );
-        setPriceResult(
-          `${teams[a.i].name} WINS · ${exact ? "EXACT PRICE — DOUBLE" : "CLOSEST GUESS"} · +${cash(prize)}`,
-        );
-        say(
-          exact
-            ? `EXACT PRICE! DOUBLE · +${cash(prize)}`
-            : `${teams[a.i].name} IS CLOSEST · +$100`,
-        );
-      }
+      const entries = teams.map((t, i) => ({
+        i,
+        g: Number(guesses[t.id]),
+        d: Math.abs(Number(guesses[t.id]) - product.price),
+      }));
+      const best = Math.min(...entries.map((x) => x.d)),
+        winners = entries.filter((x) => x.d === best),
+        exact = best === 0,
+        prize = exact ? 200 : 100;
+      setTeams((t) =>
+        t.map((x, i) =>
+          winners.some((w) => w.i === i) ? { ...x, score: x.score + prize } : x,
+        ),
+      );
+      const names = winners.map((w) => teams[w.i].name).join(" + ");
+      setPriceResult(
+        `${names} ${winners.length > 1 ? "TIE" : "WINS"} · ${exact ? "EXACT PRICE — DOUBLE" : "CLOSEST GUESS"} · +${cash(prize)}`,
+      );
+      say(
+        `${names} ${winners.length > 1 ? "TIE" : "IS CLOSEST"} · +${cash(prize)}`,
+      );
     } else if (stage === 2) {
       const answer =
           product.price >
-          products[(pi - 1 + products.length) % products.length].price
+          playableProducts[
+            (pi - 1 + playableProducts.length) % playableProducts.length
+          ].price
             ? "UP"
             : "DOWN",
         winners = teams.filter((x) => choices[x.id] === answer);
@@ -753,23 +837,36 @@ export default function Home() {
   };
   const revealBaskets = () => {
     if (priceOpen) return;
+    const entries = teams.map((t, i) => ({ i, g: Number(guesses[t.id]) }));
+    if (
+      entries.some(
+        (x) =>
+          !Number.isFinite(x.g) || x.g < 0 || !guesses[teams[x.i].id]?.trim(),
+      )
+    )
+      return say("ENTER A VALID GUESS FOR EVERY TEAM");
     setPriceOpen(true);
     if (practice) {
       setPriceResult("PRACTICE REVEAL · NO MONEY AWARDED");
       return say("PRACTICE ONLY · $0 AWARDED");
     }
-    const winner = [...teams].sort(
-      (a, b) =>
-        Math.abs(totals[a.id] - settings.target) -
-        Math.abs(totals[b.id] - settings.target),
-    )[0];
+    const best = Math.min(
+      ...entries.map((x) => Math.abs(x.g - basket.basket_total)),
+    );
+    const winners = entries
+      .filter((x) => Math.abs(x.g - basket.basket_total) === best)
+      .map((x) => teams[x.i]);
     setTeams((t) =>
-      t.map((x) => (x.id === winner.id ? { ...x, score: x.score + 300 } : x)),
+      t.map((x) =>
+        winners.some((w) => w.id === x.id) ? { ...x, score: x.score + 300 } : x,
+      ),
     );
     setPriceResult(
-      `${winner.name} WINS · CLOSEST TO ${cash(settings.target)} · +$300`,
+      `${winners.map((x) => x.name).join(" + ")} ${winners.length > 1 ? "TIE" : "WINS"} · CLOSEST GUESS · +$300`,
     );
-    say(`${winner.name} IS CLOSEST · +$300`);
+    say(
+      `${winners.map((x) => x.name).join(" + ")} ${winners.length > 1 ? "TIE" : "IS CLOSEST"} · +$300`,
+    );
   };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -878,7 +975,10 @@ export default function Home() {
       )}
       <Nav />
       {!host && screen !== "home" && (
-        <div className="audiencebanner">LIVE AUDIENCE VIEW · ALL GAMEPLAY IS SYNCED · ANSWERS AND UNREVEALED PRICES STAY HIDDEN</div>
+        <div className="audiencebanner">
+          LIVE AUDIENCE VIEW · ALL GAMEPLAY IS SYNCED · ANSWERS AND UNREVEALED
+          PRICES STAY HIDDEN
+        </div>
       )}
       {toast && <div className="toast">{toast}</div>}
       {screen === "home" && (
@@ -1153,24 +1253,40 @@ export default function Home() {
             <>
               <div className="product">
                 <div>
-                  <img src={product.image} alt={product.name} />
+                  <SafeImage
+                    src={product.image}
+                    alt={`${product.brand || ""} ${product.name}`.trim()}
+                  />
                 </div>
                 <article>
                   <small>SPOTLIGHT ITEM</small>
                   <h3>{product.name}</h3>
+                  <p>
+                    {product.brand} · {product.category} · {product.difficulty}
+                  </p>
                   <p>{product.size}</p>
                   <u>{product.source}</u>
                   {stage === 2 && (
                     <label>
                       REFERENCE PRICE ·{" "}
                       {cash(
-                        products[(pi - 1 + products.length) % products.length]
-                          .price,
+                        playableProducts[
+                          (pi - 1 + playableProducts.length) %
+                            playableProducts.length
+                        ].price,
                       )}
                     </label>
                   )}
                   {priceOpen && (
-                    <strong>ACTUAL PRICE · {cash(product.price)}</strong>
+                    <strong>
+                      {product.onSale ? "SALE PRICE" : "ACTUAL RETAIL PRICE"} ·{" "}
+                      {cash(product.price)}{" "}
+                      {product.onSale && product.originalPrice ? (
+                        <del>{cash(product.originalPrice)}</del>
+                      ) : (
+                        ""
+                      )}
+                    </strong>
                   )}
                 </article>
               </div>
@@ -1223,8 +1339,9 @@ export default function Home() {
                           <strong>
                             {choices[t.id] ===
                             (product.price >
-                            products[
-                              (pi - 1 + products.length) % products.length
+                            playableProducts[
+                              (pi - 1 + playableProducts.length) %
+                                playableProducts.length
                             ].price
                               ? "UP"
                               : "DOWN")
@@ -1237,14 +1354,16 @@ export default function Home() {
                   </article>
                 ))}
               </div>
-              {priceResult && <div className="pricewinner">🏆 {priceResult}</div>}
+              {priceResult && (
+                <div className="pricewinner">🏆 {priceResult}</div>
+              )}
               {host && (
                 <div className="controls center">
                   <button onClick={() => setRunning(true)}>START TIMER</button>
                   <button onClick={revealPrice}>LOCK & REVEAL</button>
                   <button
                     onClick={() => {
-                      setPi((i) => (i + 1) % products.length);
+                      setPi((i) => (i + 1) % playableProducts.length);
                       setGuesses({});
                       setChoices({});
                       setPriceOpen(false);
@@ -1285,100 +1404,71 @@ export default function Home() {
           ) : (
             <>
               <div className="target">
-                <strong>
-                  TARGET
-                  <br />
-                  {cash(settings.target)}
-                </strong>
+                <strong>HOW MUCH DOES THIS CART COST?</strong>
                 <p>
-                  Add products to <b>{teams[active].name}</b>’s cart. Audience
-                  totals stay hidden.
+                  {basket.basket_name} · {basket.retailer} · {basket.difficulty}
                 </p>
+                {priceOpen && (
+                  <b>ACTUAL CART TOTAL · {cash(basket.basket_total)}</b>
+                )}
               </div>
-              <div className="catalog">
-                {basketProducts.map((p) => (
-                  <button
-                    onClick={() => {
-                      if (!host || locked.includes(teams[active].id)) return;
-                      save();
-                      setCarts((c) => ({
-                        ...c,
-                        [teams[active].id]: [
-                          ...(c[teams[active].id] || []),
-                          p.id,
-                        ],
-                      }));
-                    }}
-                  >
-                    <i>
-                      <img src={p.image} alt="" />
-                    </i>
-                    <b>{p.name}</b>
-                    <small>{p.category || "Grocery"}</small>
-                    {priceOpen && <span>{cash(p.price)}</span>}
-                  </button>
-                ))}
-              </div>
-              <div className="carts">
-                {teams.map((t, i) => (
-                  <article
-                    className={i === active ? "activecart" : ""}
-                    style={{ "--team": t.color } as any}
-                  >
-                    <b>{t.name}</b>
-                    <div>
-                      {(carts[t.id] || []).map((id, j) => (
-                        <span>
-                          <img
-                            className="cartthumb"
-                            src={products.find((p) => p.id === id)?.image}
-                            alt=""
-                          />{" "}
-                          {products.find((p) => p.id === id)?.name}
-                          {host && (
-                            <button
-                              onClick={() =>
-                                setCarts((c) => ({
-                                  ...c,
-                                  [t.id]: c[t.id].filter((_, x) => x !== j),
-                                }))
-                              }
-                            >
-                              ×
-                            </button>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                    <strong>
-                      {priceOpen || (host && settings.hostTotal)
-                        ? cash(totals[t.id])
-                        : "TOTAL HIDDEN"}
-                    </strong>
-                    {locked.includes(t.id) && <em>LOCKED</em>}
+              <div className="grocerygrid">
+                {basket.items.map((item) => (
+                  <article key={item.id}>
+                    <SafeImage
+                      src={item.image_url}
+                      alt={`${item.brand} ${item.product_name}`}
+                    />
+                    <b>{item.product_name}</b>
+                    <span>
+                      {item.brand} · {item.package_size}
+                      {item.quantity > 1 ? ` · QTY ${item.quantity}` : ""}
+                    </span>
+                    {priceOpen && <strong>{cash(item.extended_price)}</strong>}
                   </article>
                 ))}
               </div>
-              {priceResult && <div className="pricewinner">🏆 {priceResult}</div>}
+              <div className="guessgrid">
+                {teams.map((t) => (
+                  <article key={t.id} style={{ "--team": t.color } as any}>
+                    <b>{t.name}</b>
+                    {host && (
+                      <input
+                        aria-label={`${t.name} cart guess`}
+                        inputMode="decimal"
+                        value={guesses[t.id] || ""}
+                        onChange={(e) =>
+                          setGuesses((g) => ({
+                            ...g,
+                            [t.id]: e.target.value.replace(/[^0-9.]/g, ""),
+                          }))
+                        }
+                      />
+                    )}
+                    <strong>
+                      {guesses[t.id]
+                        ? cash(Number(guesses[t.id]))
+                        : "$__________"}
+                    </strong>
+                  </article>
+                ))}
+              </div>
+              {priceResult && (
+                <div className="pricewinner">🏆 {priceResult}</div>
+              )}
               {host && (
                 <div className="controls center">
+                  <button onClick={revealBaskets}>LOCK GUESSES & REVEAL</button>
                   <button
                     onClick={() => {
-                      setLocked((l) => [...l, teams[active].id]);
-                      nextTeam();
+                      setPi((i) => (i + 1) % allBaskets.length);
+                      setGuesses({});
+                      setPriceOpen(false);
+                      setPriceResult("");
                     }}
                   >
-                    FINISH CART
+                    NEXT BASKET →
                   </button>
-                  <button
-                    onClick={() =>
-                      setCarts((c) => ({ ...c, [teams[active].id]: [] }))
-                    }
-                  >
-                    CLEAR CART
-                  </button>
-                  <button onClick={revealBaskets}>REVEAL ALL TOTALS</button>
-                  <button onClick={undo}>UNDO</button>
                   {practice && (
                     <button
                       onClick={() => {
@@ -1452,6 +1542,67 @@ export default function Home() {
             </article>
             <article>
               <h3>PRICE CHALLENGE</h3>
+              <label>
+                Difficulty
+                <select
+                  value={settings.productDifficulty}
+                  onChange={(e) => {
+                    setSettings((s) => ({
+                      ...s,
+                      productDifficulty: e.target.value,
+                    }));
+                    setPi(0);
+                  }}
+                >
+                  {["ALL", "EASY", "MEDIUM", "HARD"].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Category
+                <select
+                  value={settings.productCategory}
+                  onChange={(e) => {
+                    setSettings((s) => ({
+                      ...s,
+                      productCategory: e.target.value,
+                    }));
+                    setPi(0);
+                  }}
+                >
+                  {[
+                    "ALL",
+                    ...Array.from(
+                      new Set(products.map((p) => p.category || "Other")),
+                    ),
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Price range
+                <select
+                  value={settings.productPriceRange}
+                  onChange={(e) => {
+                    setSettings((s) => ({
+                      ...s,
+                      productPriceRange: e.target.value,
+                    }));
+                    setPi(0);
+                  }}
+                >
+                  {[
+                    "ALL",
+                    ...Array.from(
+                      new Set(products.map((p) => p.priceRange || "Other")),
+                    ),
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
               <Toggle
                 label="Practice sequence"
                 val={settings.pricePractice}
@@ -1666,6 +1817,14 @@ function Toggle({
         <i />
       </button>
     </label>
+  );
+}
+function SafeImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <span className="imagefallback">IMAGE UNAVAILABLE</span>
+  ) : (
+    <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
   );
 }
 function Num({
