@@ -38,12 +38,10 @@ type GroceryBasket = {
 type Screen =
   "home" | "setup" | "chain" | "price" | "settings" | "content" | "scoreboard";
 const colors = [
-  "#ff6147",
-  "#00bfa6",
-  "#ffc837",
-  "#8466ed",
-  "#ec4899",
-  "#38bdf8",
+  "#e53935",
+  "#1e88e5",
+  "#22a447",
+  "#facc15",
 ];
 const initialTeams = [
   "TEAM MASALA",
@@ -51,6 +49,12 @@ const initialTeams = [
   "TEAM CHAI",
   "TEAM DHOKLA",
 ].map((name, i) => ({ id: i + 1, name, color: colors[i], score: 0 }));
+const normalizeTeams = (saved: typeof initialTeams | undefined) =>
+  initialTeams.map((fallback, index) => ({
+    ...fallback,
+    ...(saved?.[index] || {}),
+    color: colors[index],
+  }));
 const initialChains: Chain[] = [
   {
     title: "Practice",
@@ -490,8 +494,8 @@ export default function Home() {
   const applyShared = (s: any) => {
     if (!s) return;
     setScreen(s.screen || "home");
-    setTeams(s.teams || initialTeams);
-    setActive(s.active || 0);
+    setTeams(normalizeTeams(s.teams));
+    setActive(Math.min(s.active || 0, 3));
     setChains(s.chains || initialChains);
     setCi(s.ci || 0);
     setShown(s.shown || [0, 5]);
@@ -742,34 +746,30 @@ export default function Home() {
         items: [],
       };
   const basketPool = useMemo(() => {
+    const coreNames = new Set(
+      basket.items.map((item) => item.product_name.toLowerCase()),
+    );
+    const seenNames = new Set(coreNames);
     const groceryDecoys = allBaskets
       .filter((b) => b.basket_id !== basket.basket_id)
       .flatMap((b) => b.items)
-      .filter(
-        (x) => !basket.items.some((i) => i.product_name === x.product_name),
-      )
-      .slice(0, 8);
-    const productDecoys = products
-      .filter((p) => p.id && p.price >= 20)
-      .sort((a, b) => b.price - a.price)
-      .slice(0, 8)
-      .map((p) => ({
-        id: `product-${p.id}`,
-        product_name: p.name,
-        brand: p.brand || "",
-        category: p.category || "General",
-        package_size: "1 item",
-        quantity: 1,
-        unit_price: p.price,
-        extended_price: p.price,
-        image_url: p.image,
+      .filter((item) => {
+        const name = item.product_name.toLowerCase();
+        if (seenNames.has(name)) return false;
+        seenNames.add(name);
+        return true;
+      })
+      .slice(0, 28)
+      .map((item) => ({
+        ...item,
+        id: `decoy-${basket.basket_id}-${item.id}`,
       }));
-    return [...basket.items, ...groceryDecoys, ...productDecoys].sort(
+    return [...basket.items, ...groceryDecoys].sort(
       (a, b) =>
         String(a.id).localeCompare(String(b.id)) *
         (basket.basket_id % 2 ? 1 : -1),
     );
-  }, [basket, allBaskets, products]);
+  }, [basket, allBaskets]);
   const say = (x: string) => {
       setToast(x);
       setTimeout(() => setToast(""), 1600);
@@ -1295,44 +1295,13 @@ export default function Home() {
                     }
                   />
                 </label>
-                <div>
-                  {colors.map((c) => (
-                    <button
-                      style={{ background: c }}
-                      onClick={() =>
-                        setTeams((a) =>
-                          a.map((x) =>
-                            x.id === t.id ? { ...x, color: c } : x,
-                          ),
-                        )
-                      }
-                    />
-                  ))}
+                <div className="team-color-label">
+                  {["RED", "BLUE", "GREEN", "YELLOW"][i]}
                 </div>
               </article>
             ))}
           </div>
           <div className="controls">
-            <button
-              onClick={() =>
-                setTeams((a) => [
-                  ...a,
-                  {
-                    id: Date.now(),
-                    name: `TEAM ${a.length + 1}`,
-                    color: colors[a.length % 6],
-                    score: 0,
-                  },
-                ])
-              }
-            >
-              + ADD TEAM
-            </button>
-            {teams.length > 2 && (
-              <button onClick={() => setTeams((a) => a.slice(0, -1))}>
-                REMOVE LAST
-              </button>
-            )}
             <button className="primary" onClick={() => setScreen("home")}>
               SAVE & RETURN →
             </button>
@@ -1631,8 +1600,8 @@ export default function Home() {
               <div className="target">
                 <strong>BUILD A CART CLOSE TO {cash(settings.target)}</strong>
                 <p>
-                  PICK A SUBSET · {basketPool.length} MIXED ITEMS · GROCERIES +
-                  EXPENSIVE DECOYS
+                  PICK A SUBSET · {basketPool.length} REAL GROCERY OPTIONS ·
+                  ONLY SOME BELONG IN THE WINNING CART
                 </p>
                 {priceOpen && (
                   <b>ALL 20 ITEMS TOTAL · {cash(basket.basket_total)}</b>

@@ -311,6 +311,16 @@ nav .on {
   display: flex;
   gap: 7px;
 }
+.teamgrid article .team-color-label {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  background: var(--team);
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
 .teamgrid article div button {
   width: 24px;
   height: 24px;
